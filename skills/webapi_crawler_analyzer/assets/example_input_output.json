@@ -1,0 +1,26 @@
+{
+  "example_usage": {
+    "url": "https://example-commerce.com/products",
+    "data_description": "product names, prices, inventory status",
+    "max_depth": 2,
+    "confirm_each_depth": true
+  },
+  "expected_output": {
+    "analyzed_apis": [
+      {
+        "url": "https://api.example-commerce.com/v1/products",
+        "method": "GET",
+        "content_type": "application/json",
+        "matched_keywords": ["price", "inventory"],
+        "priority_level": 2,
+        "sample_response": "{\n  \"products\": [\n    {\n      \"id\": 1,\n      \"name\": \"Sample Product\",\n      \"price\": 29.99,\n      \"in_stock\": true\n    }\n  ]\n}"
+      }
+    ],
+    "next_depth_links": [
+      "https://example-commerce.com/products/1",
+      "https://example-commerce.com/products/2"
+    ],
+    "requires_user_confirmation": true,
+    "analysis_summary": "Found 1 API endpoint with matching keywords, discovered 2 links for next depth"
+  }
+}
