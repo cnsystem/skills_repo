@@ -1,26 +1,68 @@
 {
   "example_usage": {
-    "url": "https://example-commerce.com/products",
+    "instructions": "Open https://example-commerce.com/products, enter 'phone' in search box, click search button",
     "data_description": "product names, prices, inventory status",
-    "max_depth": 2,
-    "confirm_each_depth": true
+    "max_depth": 1,
+    "confirm_each_depth": true,
+    "include_pagination": false
   },
   "expected_output": {
-    "analyzed_apis": [
+    "execution_summary": "Successfully executed 2 interaction steps, captured 15 network requests",
+    "recommended_apis": [
       {
-        "url": "https://api.example-commerce.com/v1/products",
-        "method": "GET",
-        "content_type": "application/json",
-        "matched_keywords": ["price", "inventory"],
-        "priority_level": 2,
-        "sample_response": "{\n  \"products\": [\n    {\n      \"id\": 1,\n      \"name\": \"Sample Product\",\n      \"price\": 29.99,\n      \"in_stock\": true\n    }\n  ]\n}"
+        "url": "https://api.example-commerce.com/search",
+        "method": "POST",
+        "priority_score": 0.95,
+        "matched_fields": ["name", "price", "stock_status"],
+        "sample_data": {
+          "results": [
+            {
+              "name": "Smartphone X",
+              "price": 699.99,
+              "stock_status": "in_stock"
+            }
+          ]
+        },
+        "direct_use_example": "curl -X POST https://api.example-commerce.com/search -d '{\"query\":\"phone\"}'"
       }
     ],
-    "next_depth_links": [
-      "https://example-commerce.com/products/1",
-      "https://example-commerce.com/products/2"
-    ],
-    "requires_user_confirmation": true,
-    "analysis_summary": "Found 1 API endpoint with matching keywords, discovered 2 links for next depth"
+    "fallback_html_selectors": {
+      "if_no_api": []
+    },
+    "next_actions": {
+      "requires_confirmation": true,
+      "available_depth_links": [
+        {
+          "url": "https://example-commerce.com/product/123",
+          "context": "Product Detail Page"
+        },
+        {
+          "url": "https://example-commerce.com/product/456",
+          "context": "Product Detail Page"
+        }
+      ],
+      "pagination_api_detected": "https://api.example-commerce.com/products?page=2"
+    }
+  },
+  "fallback_example": {
+    "instructions": "Open https://legacy-website.com/listings",
+    "data_description": "contact phone and address",
+    "expected_fallback_output": {
+      "fallback_html_selectors": {
+        "if_no_api": [
+          {
+            "element": "Phone",
+            "selector": ".contact-info .phone",
+            "example": "<span class='phone'>555-1234</span>"
+          },
+          {
+            "element": "Address", 
+            "selector": ".contact-info .address",
+            "example": "<div class='address'>123 Main St</div>"
+          }
+        ]
+      },
+      "extraction_code_template": "soup.select('.listing-item') → iterate to extract"
+    }
   }
 }

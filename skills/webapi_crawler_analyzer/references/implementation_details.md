@@ -1,57 +1,93 @@
-# WebAPI Crawler Analyzer - Implementation Details
+# WebAPI Crawler Analyzer - Updated Implementation Details
 
 ## Architecture Overview
 
-The WebAPI Crawler Analyzer is built with a modular architecture that separates concerns for better maintainability and extensibility:
+The updated WebAPI Crawler Analyzer now supports natural language instructions and intelligent API discovery with the following enhancements:
 
-- **Main Analyzer Class**: `WebAPICrawlerAnalyzer` handles the core crawling logic
-- **Request Capture**: Uses Playwright for browser automation and network request interception
-- **Priority Analysis**: Implements a multi-tiered approach to identify the most relevant APIs
-- **Depth Control**: Manages crawling depth to prevent infinite loops
-- **Keyword Matching**: Uses text-based matching to identify relevant data
+- **Natural Language Processing**: Extracts URLs and interactions from user instructions
+- **Intelligent Interaction**: Performs dynamic actions (filling forms, clicking buttons) based on instructions
+- **LLM-Assisted Matching**: Uses scoring algorithms to match APIs with data requirements
+- **Pagination Handling**: Special processing for pagination scenarios
+- **Fallback HTML Parsing**: Generates CSS selectors when no APIs are found
 
 ## Core Components
 
-### 1. Network Request Capture
+### 1. Natural Language Instruction Processing
 
-The system uses Playwright to launch a headless browser and capture all network requests made during page load. This approach is effective for:
+The system now processes natural language instructions to:
+- Extract target URLs from text
+- Identify interaction steps (form filling, button clicks)
+- Convert instructions to Playwright operations
 
-- Single Page Applications (SPAs) that load data via AJAX
-- Sites with dynamic content loading
-- Modern web frameworks that fetch data after initial HTML load
+### 2. Intelligent Interaction Engine
 
-### 2. Priority-Based Analysis
+The interaction engine performs actions based on natural language:
+- Searches for form elements and fills them with appropriate values
+- Identifies and clicks relevant buttons
+- Waits for network activity after interactions
 
-The system analyzes requests in priority order:
+### 3. Priority-Based Analysis with Scoring
+
+The system analyzes requests with an improved priority system:
 
 1. **Document (HTML)**: Checks for embedded JSON in script tags
-2. **XHR/Fetch**: Filters for JSON responses and matches against keywords
+2. **XHR/Fetch**: Filters for JSON responses and scores them based on relevance
 3. **JS Files**: Parses JavaScript files for stringified JSON
 4. **Other Text Types**: Processes other text responses for structured data
 
-### 3. Keyword Extraction and Matching
+### 4. Pagination Detection and Handling
 
-The system extracts keywords from the user's data description and matches them against response content. In a production implementation, this could be enhanced with:
+The system now includes special handling for pagination:
+- Detects URL patterns like `?page=`, `?p=`, `/page/number`
+- Identifies pagination APIs containing fields like `pagination`, `total_pages`
+- Offers option to treat pagination links as next level or analyze pagination API directly
 
-- Natural Language Processing (NLP) for better semantic matching
-- Machine Learning models to improve relevance scoring
-- Context-aware matching that considers the relationship between keywords
+### 5. Fallback HTML Parsing
+
+When no APIs are found, the system generates CSS selectors:
+- Analyzes HTML structure to identify data containers
+- Generates targeted selectors for specific data fields
+- Provides example code for HTML parsing
 
 ## Configuration Options
 
+### Interaction Settings
+- `instructions`: Natural language instructions for page interaction
+- `data_description`: Description of required data fields
+
 ### Depth Control
-- `max_depth`: Controls how many levels deep the crawler will go
+- `max_depth`: Controls how many levels deep the crawler will go (0 = current page only)
 - `confirm_each_depth`: Allows user confirmation before proceeding to next depth level
+- `include_pagination`: Whether to treat pagination links as next level
 
 ### Performance Settings
-- Request timeout limits
+- Request timeout limits (30 seconds default)
 - Rate limiting to avoid overwhelming target servers
 - Response size limits to prevent memory issues
 
-### Authentication Support
-- Custom headers for API authentication
-- Cookie handling for session-based authentication
-- Token-based authentication support
+## Natural Language Processing
+
+### URL Extraction
+The system uses regex patterns to extract URLs from natural language instructions:
+- `https?://[^\s\'"<>]+` - matches standard URLs
+- Handles various URL formats and protocols
+
+### Interaction Pattern Recognition
+The system identifies common interaction patterns:
+- Search operations: looks for search boxes and fills them with provided terms
+- Click operations: identifies buttons with relevant text (search, execute, submit)
+
+## API Matching Algorithm
+
+### Scoring System
+The system uses a multi-factor scoring approach:
+- Keyword matching: How well the response matches the data description
+- Data structure: Favors JSON over plain text
+- Field relevance: Matches specific field names mentioned in data description
+
+### Two-Stage Matching Process
+1. **Filtering Stage**: Quickly eliminates non-relevant responses
+2. **Detailed Analysis**: Deep analysis of candidate APIs for best matches
 
 ## Security Considerations
 
@@ -59,84 +95,98 @@ The system extracts keywords from the user's data description and matches them a
 - Automatic removal of sensitive information (passwords, tokens) from responses
 - Sanitization of sample responses before display
 
+### Privacy Protection
+- Automatic skipping of sensitive paths (`/auth/`, `/login/`, `/admin/`)
+- Local processing of all data
+- No external data transmission unless explicitly configured
+
 ### Rate Limiting
 - Built-in rate limiting to prevent overwhelming target servers
 - Configurable delays between requests
 
-### Privacy Protection
-- Local processing of all data
-- No external data transmission unless explicitly configured
+## Pagination Handling
 
-## Extensibility Points
+### Detection Patterns
+The system detects pagination using multiple patterns:
+- Query parameters: `?page=`, `?p=`, `?offset=`
+- Path patterns: `/page/number`, `/number/page`
+- Common pagination field names in API responses
 
-### Adding New Priority Levels
-New priority levels can be added by implementing additional analysis methods in the `_analyze_requests_by_priority` function.
+### Processing Options
+- Default: Analyze pagination API directly rather than following links
+- Optional: Treat pagination links as next depth level
+- Provides complete pagination solution when detected
 
-### Custom Matching Algorithms
-The keyword matching algorithm can be replaced with more sophisticated NLP approaches.
+## Fallback HTML Parsing
 
-### Additional Output Formats
-The output format can be extended to support different data serialization formats.
+### Selector Generation
+When no APIs are found, the system:
+- Analyzes HTML structure using BeautifulSoup
+- Identifies potential data containers
+- Generates CSS selectors for specific data fields
+- Provides example code for extraction
 
-## Common Use Cases
+### Field Mapping
+The system maps data description terms to HTML elements:
+- Matches field names from description to element classes/IDs
+- Provides example HTML snippets for verification
+- Generates extraction code templates
 
-### E-commerce Data Extraction
-- Product information (names, prices, inventory)
-- Customer reviews and ratings
-- Category and filtering data
+## Usage Patterns
 
-### API Discovery
-- Identifying undocumented API endpoints
-- Understanding data flow in web applications
-- Reverse engineering web service interactions
+### Interactive API Discovery
+For sites requiring user interaction:
+```
+instructions: "Go to search page, enter 'laptop' in search box, click search"
+data_description: "product names, prices, ratings"
+```
 
-### Content Aggregation
-- Collecting structured data from multiple sources
-- Monitoring changes to web content
-- Building datasets from web sources
+### Pagination Handling
+For sites with pagination:
+```
+instructions: "Visit product listing page"
+data_description: "all product names and prices"
+max_depth: 1
+include_pagination: true
+```
 
-## Troubleshooting Guide
+### Fallback Parsing
+For static sites without APIs:
+```
+instructions: "Open legacy product page"
+data_description: "product details and specifications"
+```
 
-### Common Issues and Solutions
+## Performance Optimizations
 
-#### No APIs Found
-- **Cause**: Static HTML site with no dynamic API calls
-- **Solution**: Check for embedded JSON in HTML source
+### Request Filtering
+- Only processes successful responses (200-299 status codes)
+- Filters out static resources (images, CSS, fonts)
+- Prioritizes JSON responses for analysis
 
-#### Timeout Errors
-- **Cause**: Slow-loading pages or complex JavaScript
-- **Solution**: Increase timeout values in configuration
+### Memory Management
+- Limits response sample sizes to prevent memory issues
+- Clears references to large response objects after processing
+- Uses streaming for large datasets when possible
 
-#### Rate Limiting
-- **Cause**: Anti-bot measures on target site
-- **Solution**: Implement delays between requests
+### Network Efficiency
+- Waits for network idle state before proceeding
+- Implements proper timeout handling
+- Reuses browser contexts when possible
 
-#### Authentication Required
-- **Cause**: Data behind login wall
-- **Solution**: Provide authentication headers
+## Error Handling
 
-### Performance Optimization
+### Network Errors
+- Graceful handling of timeout errors
+- Continues operation even if some requests fail
+- Provides partial results when possible
 
-#### Large Response Handling
-- Implement response size limits
-- Stream processing for large responses
-- Selective field extraction
+### Parsing Errors
+- Handles malformed JSON responses
+- Continues processing even if some responses can't be parsed
+- Provides fallback options when primary methods fail
 
-#### Memory Management
-- Clear references to large response objects after processing
-- Implement garbage collection for temporary data
-- Use generators for large datasets
-
-## Future Enhancements
-
-### Planned Features
-- Advanced NLP for better keyword matching
-- Visual interface for configuring crawl parameters
-- Export functionality for discovered APIs
-- Integration with API testing tools
-
-### Potential Improvements
-- Support for more authentication methods
-- Better handling of JavaScript-heavy sites
-- Improved detection of anti-bot measures
-- Enhanced privacy controls
+### Interaction Errors
+- Handles missing elements gracefully
+- Provides alternative selectors when primary ones fail
+- Continues with available data when interactions partially succeed

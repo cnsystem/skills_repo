@@ -1,29 +1,69 @@
 ---
 name: webapi_crawler_analyzer
-description: A skill for intelligently identifying crawlable WebAPI endpoints from web pages and handling multi-level page crawling with depth control. Use this skill when you need to discover APIs from web pages, analyze network requests, or extract structured data from websites with complex JavaScript interactions.
+description: A skill for intelligently identifying crawlable WebAPI endpoints from web pages using natural language instructions. Supports dynamic content handling, pagination scenarios, and falls back to HTML parsing when APIs aren't found. Prioritizes XHR requests and uses LLM assistance to identify data sources that best match user requirements.
 ---
 
 # WebAPI Crawler Analyzer Skill
 
-This skill focuses on intelligently identifying crawlable WebAPI endpoints from web pages and handling multi-level page crawling with depth control. It uses Playwright to capture network requests and analyzes them by priority to find the most relevant APIs for the requested data.
+This skill intelligently identifies crawlable WebAPI endpoints from web pages using natural language instructions. It supports dynamic content handling, pagination scenarios, and falls back to HTML parsing when APIs aren't found. The skill prioritizes XHR requests and uses LLM assistance to identify data sources that best match user requirements.
 
 ## When to Use This Skill
 
 Use this skill when you need to:
-- Discover API endpoints from a given webpage
+- Discover API endpoints from web pages using natural language instructions
 - Extract structured data from websites with complex JavaScript interactions
-- Analyze network requests to identify data sources
-- Perform multi-level crawling with controlled depth
-- Identify APIs that provide specific data types (e.g., product prices, inventory, user data)
+- Analyze network requests to identify data sources that match your description
+- Handle pagination scenarios intelligently
+- Perform fallback HTML parsing when no APIs are found
+- Interact with dynamic content (fill forms, click buttons, etc.)
 
 ## Input Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `url` | string | Yes | - | Starting URL for the crawl |
-| `data_description` | string | Yes | - | Description of the data you want to extract (e.g., "product names, prices, inventory") |
-| `max_depth` | integer | No | 1 | Maximum crawling depth to prevent infinite loops |
+| `instructions` | string | Yes | - | Natural language instructions including URL and actions (e.g., "Open https://example.com, enter 'phone' in search box, click search button") |
+| `data_description` | string | Yes | - | Description of the data you want to extract (e.g., "product names, prices, inventory status") |
+| `max_depth` | integer | No | 1 | Maximum crawling depth (0 means only current page) |
 | `confirm_each_depth` | boolean | No | true | Whether to confirm before proceeding to next depth level |
+| `include_pagination` | boolean | No | false | Whether to treat pagination links as next level (default: false) |
+
+## Processing Flow
+
+### Phase 1: Page Loading and Interaction
+1. **URL Extraction**: Extract target URL from user instructions
+2. **Interaction Operations**:
+   - Launch Playwright headless browser
+   - Send page screenshot/HTML summary and user instructions to LLM in thinking mode
+   - LLM generates specific operation steps (e.g., `page.fill('#search-box', 'playwright')`, `page.click('button.execute')`)
+   - Execute operations and wait for network requests to complete
+3. **Request Capture**:
+   - Intercept all network requests and responses
+   - Categorize by type: Document > XHR/Fetch > Script > Other
+
+### Phase 2: API Intelligent Analysis
+1. **Preliminary Filtering**:
+   - Prioritize XHR/Fetch type requests
+   - Keep only successful responses (200-299) with JSON/text Content-Type
+2. **LLM-Assisted Matching** (Two-stage):
+   - **Stage 1**: LLM generates grep-like search commands to filter N candidate APIs
+   - **Stage 2**: LLM analyzes each candidate API, evaluating match with `data_description`
+     - Field name matching (e.g., "price" vs "商品价格")
+     - Data structure standardization (JSON > text > HTML)
+     - Data volume sufficiency (list vs single record)
+3. **Pagination Special Handling**:
+   - Detect URL patterns: `?page=`, `?p=`, `/page/number`
+   - Identify pagination APIs: containing `pagination`, `total_pages` fields
+   - Default behavior: Don't add pagination links to next level, analyze pagination API itself
+
+### Phase 3: Data Extraction Strategy
+1. **Primary Solution**: Directly use matching WebAPI (with full URL and parameters)
+2. **Fallback Solution** (when no API):
+   - Use BeautifulSoup to parse HTML
+   - LLM generates CSS selectors or XPath paths
+3. **Depth Crawling Control**:
+   - When `max_depth > 0`, extract links from page
+   - Exclude: pagination links, external domains, already visited URLs
+   - Pause at depth limit, wait for user confirmation
 
 ## Output Format
 
@@ -31,158 +71,143 @@ The skill returns a JSON object with the following structure:
 
 ```json
 {
-  "analyzed_apis": [
+  "execution_summary": "Successfully executed 2 interaction steps, captured 15 network requests",
+  "recommended_apis": [
     {
-      "url": "https://api.example.com/data",
-      "method": "GET/POST",
-      "content_type": "application/json",
-      "matched_keywords": ["price", "stock"],
-      "priority_level": 1,
-      "sample_response": "{...}"
+      "url": "https://api.example.com/search",
+      "method": "POST",
+      "priority_score": 0.95,
+      "matched_fields": ["name", "price", "stock_status"],
+      "sample_data": [{"name": "Product A", "price": 199, "...": "..."}],
+      "direct_use_example": "curl -X POST https://api.example.com/search -d '{\"query\":\"playwright\"}'"
     }
   ],
-  "next_depth_links": [
-    "https://example.com/product1",
-    "https://example.com/product2"
-  ],
-  "requires_user_confirmation": true,
-  "analysis_summary": "Summary of the analysis performed"
-}
-```
-
-## Core Execution Logic
-
-### 1. Network Request Capture (Playwright)
-
-The skill uses Playwright to launch a headless browser and capture all network requests made during page load:
-
-```python
-from playwright.sync_api import sync_playwright
-
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=True)
-    context = browser.new_context()
-    page = context.new_page()
-
-    # Intercept all requests
-    requests = []
-    page.on("requestfinished", lambda req: requests.append({
-        "url": req.url,
-        "method": req.method,
-        "resource_type": req.resource_type,
-        "response": req.response().text() if req.response() else None,
-        "headers": req.headers
-    }))
-
-    page.goto(input_url, wait_until="networkidle", timeout=30000)
-    page.wait_for_timeout(2000)  # Allow dynamic content to load
-    browser.close()
-```
-
-### 2. API Priority Analysis
-
-APIs are analyzed in priority order, with the most likely data sources checked first:
-
-| Priority | Request Type | Matching Logic |
-|----------|--------------|----------------|
-| 1 | Document (HTML) | Check for embedded JSON in `<script>` tags (e.g., `__NEXT_DATA__`) |
-| 2 | XHR/Fetch | Filter for `content-type: application/json`, check for matching keywords |
-| 3 | JS Dynamic Injection | Parse JS files for stringified JSON |
-| 4 | Other Text Types | Process `text/plain`/`application/text` with regex for structured data |
-
-### 3. Breadth-First Crawling
-
-- Initial depth = 0 (starting page)
-- Each level increases depth: `current_depth += 1`
-- Stops when `current_depth >= max_depth`
-- Uses Bloom Filter to avoid duplicate URLs
-- Skips non-same-origin links
-
-### 4. Safety and Performance
-
-- Timeout: 15 seconds per page (configurable)
-- Rate limiting: Max 5 requests per second
-- Automatic data sanitization for sensitive fields
-- Proper resource cleanup
-
-## Advanced Features
-
-### Interaction Scripts
-For pages requiring user interaction to load data, you can provide custom scripts:
-
-```javascript
-// Example interaction script to click a "Load More" button
-await page.click('#load-more');
-await page.waitForTimeout(1000);
-```
-
-### Authentication Support
-Support for authenticated endpoints via headers:
-
-```json
-{
-  "auth_headers": {
-    "Authorization": "Bearer your-token",
-    "X-API-Key": "your-api-key"
+  "fallback_html_selectors": {
+    "if_no_api": [
+      {"element": "Product Name", "selector": ".product-title", "example": "<div class='product-title'>Smart Watch</div>"},
+      {"element": "Price", "selector": ".price-value", "example": "<span class='price-value'>¥299</span>"}
+    ]
+  },
+  "next_actions": {
+    "requires_confirmation": true,
+    "available_depth_links": [
+      {"url": "https://example.com/product/123", "context": "Product Detail Page"},
+      {"url": "https://example.com/product/456", "context": "Product Detail Page"}
+    ],
+    "pagination_api_detected": "https://api.example.com/products?page=2"
   }
 }
 ```
+
+## Working Principles
+
+### Intelligent Request Analysis
+- **Priority Queue**: Document > XHR > Script > Other, breaking the conventional pattern of starting from HTML
+- **Semantic Matching**: Not relying on simple keywords, but understanding data structure and context
+- **Pagination Optimization**: Treating pagination as different requests to the same data source, not new pages
+
+### Interaction Operation Mechanism
+1. LLM converts natural language instructions to Playwright operation sequences:
+   ```
+   User instruction: "Enter 'playwright' in search box, click execute button"
+   ↓
+   LLM generates operations:
+   1. page.wait_for_selector('#search-box')
+   2. page.fill('#search-box', 'playwright')
+   3. page.click('button:has-text("execute")')
+   4. page.wait_for_load_state('networkidle')
+   ```
+
+### No-API Fallback Strategy
+When no suitable API is found:
+1. LLM analyzes HTML structure, identifying data containers
+2. Generates targeted CSS selectors
+3. Provides example code:
+   ```python
+   from bs4 import BeautifulSoup
+   soup = BeautifulSoup(html_content, 'html.parser')
+   items = soup.select('div.skill-item')
+   for item in items:
+       name = item.select_one('.skill-name').text.strip()
+       # ... other field extraction
+   ```
 
 ## Usage Examples
 
-### Basic Usage
+### Example 1: API Discovery with Interaction
+**User Input**:
+```
+instructions: "Open https://skillsmp.com/zh/search, enter 'playwright' in search box, click execute button"
+data_description: "Skill name, author, download count"
+max_depth: 0
+```
+
+**Execution Process**:
+1. Load page, execute search operation
+2. Capture XHR request: `https://api.skillsmp.com/search?q=playwright`
+3. LLM analyzes response, confirms containing required fields
+4. Skip depth crawling (max_depth=0)
+
+**Output Summary**:
 ```json
 {
-  "url": "https://example-commerce.com/products",
-  "data_description": "product names, prices, inventory status"
+  "recommended_apis": [{
+    "url": "https://api.skillsmp.com/search",
+    "matched_fields": ["skill_name", "author", "downloads"],
+    "direct_use_example": "curl 'https://api.skillsmp.com/search?q=playwright'"
+  }]
 }
 ```
 
-### With Depth Control
+### Example 2: Pagination Scenario Handling
+**User Input**:
+```
+instructions: "Visit https://example-commerce.com/products"
+data_description: "Names and prices of all products"
+max_depth: 1,
+include_pagination: false
+```
+
+**Execution Process**:
+1. Analyze XHR requests, discover `/api/products?page=1` containing product data
+2. Detect pagination parameters, automatically analyze total pages
+3. Don't add pagination links to next level, instead provide complete crawling solution:
+   ```
+   for page in range(1, total_pages+1):
+       response = requests.get(f"/api/products?page={page}")
+   ```
+
+### Example 3: HTML Parsing When No API
+**User Input**:
+```
+instructions: "Open https://legacy-website.com/listings"
+data_description: "Contact phone and address"
+```
+
+**Execution Process**:
+1. No matching XHR/API requests found
+2. LLM analyzes HTML structure, generates CSS selectors
+3. Extract key element positions
+
+**Output Summary**:
 ```json
 {
-  "url": "https://example-commerce.com/products",
-  "data_description": "product names, prices, inventory status",
-  "max_depth": 2,
-  "confirm_each_depth": true
+  "fallback_html_selectors": {
+    "if_no_api": [
+      {"element": "Phone", "selector": ".contact-info .phone"},
+      {"element": "Address", "selector": ".contact-info .address"}
+    ]
+  },
+  "extraction_code_template": "soup.select('.listing-item') → iterate to extract"
 }
 ```
 
-### With Authentication
-```json
-{
-  "url": "https://api.example.com/data",
-  "data_description": "user profiles, permissions",
-  "auth_headers": {
-    "Authorization": "Bearer token123"
-  }
-}
-```
+## Limitations and Considerations
 
-## Best Practices
+1. **Dynamic Content Limitations**: Highly JavaScript-rendered pages may require custom interaction scripts
+2. **Anti-Crawling Mechanisms**: Does not handle CAPTCHAs, IP blocking, or other anti-crawling measures
+3. **Data Volume Control**: Single analysis processes at most 50 candidate APIs to avoid LLM overload
+4. **Privacy Compliance**: Automatically skips requests containing sensitive paths like `/auth/`, `/login/`
+5. **Performance Boundaries**: Single page analysis timeout = 30 seconds, depth crawling recommended in batches
 
-1. **Be Specific with Data Description**: The more specific you are about the data you want, the better the matching will be.
-
-2. **Control Depth Appropriately**: Use `max_depth` carefully to avoid unintended crawling of entire sites.
-
-3. **Use Confirmations**: For sensitive or important crawling tasks, keep `confirm_each_depth` as true.
-
-4. **Handle Dynamic Content**: For SPAs or heavily JavaScript-dependent sites, consider using interaction scripts.
-
-5. **Respect Rate Limits**: The skill includes rate limiting, but be mindful of the target site's policies.
-
-## Troubleshooting
-
-### Common Issues
-
-- **No APIs Found**: The site might be a static HTML site with no dynamic API calls
-- **Timeout Errors**: The page might be slow to load or have complex JavaScript
-- **Authentication Required**: The data might be behind a login wall
-- **Rate Limited**: The site might have anti-bot measures in place
-
-### Solutions
-
-- For static sites, look for embedded JSON in the HTML source
-- For timeout issues, try increasing the timeout in the skill configuration
-- For authentication issues, provide appropriate headers
-- For rate limiting, reduce the crawling speed or add delays
+> **Tip**: For complex websites, first use `max_depth=0` to analyze current page APIs, then decide whether to crawl deeper. For pagination scenarios, it's recommended to directly use the detected pagination API rather than clicking through pages.
