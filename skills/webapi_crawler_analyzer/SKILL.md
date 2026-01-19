@@ -7,6 +7,20 @@ description: A skill for intelligently identifying crawlable WebAPI endpoints fr
 
 This skill intelligently identifies crawlable WebAPI endpoints from web pages using natural language instructions. It supports dynamic content handling, pagination scenarios, and falls back to HTML parsing when APIs aren't found. The skill prioritizes XHR requests and uses LLM assistance to identify data sources that best match user requirements.
 
+## Environment Configuration
+
+Before using this skill, you need to configure the Python environment:
+
+1. Check if a Python virtual environment exists in the `assets` directory (`assets/.venv`).
+2. If the virtual environment does not exist, follow the setup instructions in [SETUP.md](./SETUP.md) to create one:
+   - Create a virtual environment using `uv venv`
+   - Install dependencies with `uv pip install -r requirements.txt`
+   - Install Playwright browsers with `python -m playwright install chromium`
+3. If the virtual environment exists in `assets/.venv`, activate it before running any Python commands:
+   ```bash
+   source assets/.venv/bin/activate
+   ```
+
 ## When to Use This Skill
 
 Use this skill when you need to:
@@ -16,6 +30,20 @@ Use this skill when you need to:
 - Handle pagination scenarios intelligently
 - Perform fallback HTML parsing when no APIs are found
 - Interact with dynamic content (fill forms, click buttons, etc.)
+
+## Function Interface
+
+The skill provides a function that can be called by an LLM:
+
+```python
+def webapi_crawler_analyzer_skill(
+    instructions: str,
+    data_description: str,
+    max_depth: int = 1,
+    confirm_each_depth: bool = True,
+    include_pagination: bool = False
+) -> Dict[str, Any]:
+```
 
 ## Input Parameters
 
